@@ -15,7 +15,7 @@
    # 或任意静态服务器，然后浏览器打开
    # http://localhost:8000/index.html
    ```
-2. 公网访问：*（部署至 GitHub Pages 等平台后在此填入 URL）*
+2. 公网访问：<https://Auroral9.github.io/ap2-solar-system/>
 
 ---
 
