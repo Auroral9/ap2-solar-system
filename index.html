@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AP2 · 三维层级场景：太阳系</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05070f; }
+  #glcanvas { display: block; width: 100vw; height: 100vh; }
+  #panel {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    background: rgba(10, 14, 26, 0.82); border: 1px solid rgba(120, 160, 255, 0.25);
+    border-radius: 10px; padding: 14px 16px; color: #d7e3ff;
+    font: 13px/1.5 "Microsoft YaHei", system-ui, sans-serif;
+    min-width: 236px; backdrop-filter: blur(4px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    user-select: none;
+  }
+  #panel h3 { font-size: 14px; margin-bottom: 4px; color: #fff; letter-spacing: 1px; }
+  #panel .sub { font-size: 11px; color: #7c8bb5; margin-bottom: 10px; }
+  .row { margin: 8px 0; }
+  .row label { display: inline-block; width: 92px; color: #aeb9d8; }
+  .row .val { display: inline-block; width: 46px; text-align: right; color: #8fd0ff; }
+  .row input[type=range] { width: 100%; margin-top: 2px; accent-color: #4f83ff; }
+  .row.toggle { display: flex; align-items: center; gap: 8px; }
+  .row.toggle label { width: auto; }
+  #mode { margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(120,160,255,0.2);
+          font-size: 12px; color: #8fd0ff; }
+  #hud {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 10;
+    background: rgba(10,14,26,0.78); border: 1px solid rgba(120,160,255,0.2);
+    border-radius: 8px; padding: 8px 16px; color: #b6c2e0;
+    font: 12px/1.7 "Microsoft YaHei", system-ui, sans-serif; text-align: center;
+    white-space: nowrap; user-select: none;
+  }
+  #hud b { color: #8fd0ff; font-weight: 600; }
+  #notice {
+    position: fixed; top: 14px; right: 14px; z-index: 10; max-width: 260px;
+    background: rgba(10,14,26,0.82); border: 1px solid rgba(120,160,255,0.22);
+    border-radius: 10px; padding: 10px 14px; color: #b6c2e0;
+    font: 12px/1.6 "Microsoft YaHei", system-ui, sans-serif; backdrop-filter: blur(4px);
+  }
+  #notice b { color: #8fd0ff; }
+  #notice .hint { color: #5f7; }
+</style>
+</head>
+<body>
+<canvas id="glcanvas"></canvas>
+
+<script id="main-vs" type="x-shader/x-vertex">
+attribute vec3 aPosition;
+attribute vec3 aNormal;
+attribute vec2 aTexCoord;
+uniform mat4 uModelMatrix;
+uniform mat4 uViewMatrix;
+uniform mat4 uProjectionMatrix;
+varying vec2 vTexCoord;
+varying vec3 vNormal;
+varying vec3 vWorldPos;
+void main() {
+    vTexCoord = aTexCoord;
+    vec4 wp = uModelMatrix * vec4(aPosition, 1.0);
+    vWorldPos = wp.xyz;
+    vNormal = normalize(mat3(uModelMatrix) * aNormal);
+    gl_Position = uProjectionMatrix * uViewMatrix * wp;
+}
+</script>
+<script id="main-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform sampler2D uTexture;
+uniform vec3  uLightDir;
+uniform vec3  uCamPos;
+uniform float uEmissive;
+uniform float uAlphaMode;
+varying vec2 vTexCoord;
+varying vec3 vNormal;
+varying vec3 vWorldPos;
+void main() {
+    vec4 tex = texture2D(uTexture, vTexCoord);
+    vec3 base = tex.rgb;
+    vec3 n = normalize(vNormal);
+    vec3 L = normalize(uLightDir - vWorldPos);
+    float diff = max(dot(n, L), 0.0);
+    vec3 V = normalize(uCamPos - vWorldPos);
+    vec3 H = normalize(L + V);
+    float spec = pow(max(dot(n, H), 0.0), 24.0);
+    vec3 lit = base * (0.30 + 0.70 * diff) + vec3(0.9) * spec;
+    vec3 color = (uEmissive > 0.5) ? base : lit;
+    float alpha = (uAlphaMode > 0.5) ? tex.a : 1.0;
+    gl_FragColor = vec4(color, alpha);
+}
+</script>
+<script id="orbit-vs" type="x-shader/x-vertex">
+attribute vec3 aPosition;
+uniform mat4 uViewMatrix;
+uniform mat4 uProjectionMatrix;
+void main() {
+    gl_Position = uProjectionMatrix * uViewMatrix * vec4(aPosition, 1.0);
+}
+</script>
+<script id="orbit-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform vec4 uColor;
+void main() { gl_FragColor = uColor; }
+</script>
+<script id="ast-vs" type="x-shader/x-vertex">
+attribute vec3 aPosition;
+uniform mat4 uViewMatrix;
+uniform mat4 uProjectionMatrix;
+uniform float uPointSize;
+void main() {
+    gl_Position = uProjectionMatrix * uViewMatrix * vec4(aPosition, 1.0);
+    gl_PointSize = uPointSize;
+}
+</script>
+<script id="ast-fs" type="x-shader/x-fragment">
+precision mediump float;
+uniform vec4 uColor;
+void main() {
+    vec2 c = gl_PointCoord - vec2(0.5);
+    if (dot(c, c) > 0.25) discard;
+    gl_FragColor = uColor;
+}
+</script>
+
+<div id="panel">
+  <h3>太阳系参数面板</h3>
+  <div class="sub">三维层级场景 · 原生 WebGL2 + MV.js</div>
+  <div class="row">
+    <label>公转速度</label><span class="val" id="vOrbit">1.0×</span>
+    <input type="range" id="sOrbit" min="0" max="5" step="0.1" value="1">
+  </div>
+  <div class="row">
+    <label>自转速度</label><span class="val" id="vSpin">1.0×</span>
+    <input type="range" id="sSpin" min="0" max="5" step="0.1" value="1">
+  </div>
+  <div class="row">
+    <label>轴倾角</label><span class="val" id="vTilt">23.5°</span>
+    <input type="range" id="sTilt" min="0" max="60" step="0.5" value="23.5">
+  </div>
+  <div class="row toggle">
+    <input type="checkbox" id="cOrbit" checked>
+    <label for="cOrbit">显示轨道线</label>
+  </div>
+  <div class="row toggle">
+    <input type="checkbox" id="cPause" >
+    <label for="cPause">暂停动画</label>
+  </div>
+  <div id="mode">投影模式：<b>透视 (Perspective)</b>　[O 切换]</div>
+</div>
+
+<div id="notice">
+  <b>操作说明</b><br>
+  · <b>O</b> — 切换 透视 / 正交 投影<br>
+  · <b>空格</b> — 暂停 / 继续 漫游<br>
+  · <b>拖拽</b> — 轨迹球旋转视角（随时接管）<br>
+  · <b>滚轮</b> — 推拉缩放<br>
+  · <b>R</b> — 复位视角并重启漫游<br>
+  · 行星可点选查看名称
+</div>
+
+<div id="hud">
+  <b>太阳系</b> · 太阳–地球–月球三级层级 · 地球轴倾角 23.5°（先转后挂）
+  <span class="hint">| 漫游中(空格暂停) | 当前选中: 太阳</span>
+</div>
+
+<script src="Common/MV.js"></script>
+<script src="Common/initShaders.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
